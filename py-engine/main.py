@@ -9,7 +9,7 @@ from datetime import datetime
 # Ambil jalur absolut direktori skrip ini dijalankan
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 1. Memuat File Konfigurasi dari folder Config
+# 1. Memuat File Konfigurasi dari folder Config dengan mode "r" (Read)
 config_path = os.path.join(BASE_DIR, "Config", "settings.json")
 with open(config_path, "r", encoding="utf-8") as f:
     config = json.load(f)
@@ -23,13 +23,21 @@ def get_signal(ticker):
         # Mengambil data jangka pendek (Interval 1 Jam, data 60 hari terakhir)
         df = yf.download(ticker, period="60d", interval="1h", progress=False)
         if df.empty:
-            return {"ticker": ticker, "status": "ERROR", "price": 0, "action": "NO SIGNAL"}
+            return {"ticker": ticker, "status": "ERROR", "price": 0, "action": "NO DATA"}
 
+        # Pembersihan MultiIndex yang diperketat untuk yfinance versi terbaru
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+            df.columns = [col[0].lower() for col in df.columns]
+        else:
+            df.columns = [col.lower() for col in df.columns]
+
+        # Pastikan kolom esensial diubah ke tipe data float
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in df.columns:
+                df[col] = df[col].astype(float)
 
         # 2. Hitung Indikator Teknikal Menggunakan Parameter dari JSON
-        df['EMA_200'] = ta.ema(df['close'], length=IND["ema_trend_length"])
+        df['ema_200'] = ta.ema(df['close'], length=IND["ema_trend_length"])
         
         stoch_rsi = ta.stochrsi(
             df['close'], 
@@ -37,10 +45,12 @@ def get_signal(ticker):
             k=IND["stoch_k"], 
             d=IND["stoch_d"]
         )
-        df['STOCHK'] = stoch_rsi.iloc[:, 0]
-        df['STOCHD'] = stoch_rsi.iloc[:, 1]
         
-        df['CMF'] = ta.cmf(
+        # Penanganan nama kolom dinamis dari hasil pecahan Stochastic RSI
+        df['stochk'] = stoch_rsi.iloc[:, 0]
+        df['stochd'] = stoch_rsi.iloc[:, 1]
+        
+        df['cmf'] = ta.cmf(
             df['high'], df['low'], df['close'], df['volume'], 
             length=IND["cmf_length"]
         )
@@ -48,15 +58,15 @@ def get_signal(ticker):
         last_row = df.iloc[-1]
         price = round(float(last_row['close']), 2)
 
-        # 3. Logika Sinyal Menggunakan Batas Batas dari JSON
-        if (last_row['close'] > last_row['EMA_200']) and \
-           (last_row['STOCHK'] < THRES["stoch_oversold"]) and \
-           (last_row['STOCHK'] > last_row['STOCHD']) and \
-           (last_row['CMF'] > 0):
+        # 3. Logika Sinyal Jangka Pendek
+        if (last_row['close'] > last_row['ema_200']) and \
+           (last_row['stochk'] < THRES["stoch_oversold"]) and \
+           (last_row['stochk'] > last_row['stochd']) and \
+           (last_row['cmf'] > 0):
             action = "BUY"
-        elif (last_row['close'] < last_row['EMA_200']) and \
-             (last_row['STOCHK'] > THRES["stoch_overbought"]) and \
-             (last_row['STOCHK'] < last_row['STOCHD']):
+        elif (last_row['close'] < last_row['ema_200']) and \
+             (last_row['stochk'] > THRES["stoch_overbought"]) and \
+             (last_row['stochk'] < last_row['stochd']):
             action = "SELL"
         else:
             action = "HOLD / NEUTRAL"
@@ -66,12 +76,12 @@ def get_signal(ticker):
             "status": "OK",
             "price": price,
             "action": action,
-            "stochk": round(float(last_row['STOCHK']), 2),
-            "cmf": round(float(last_row['CMF']), 2)
+            "stochk": round(float(last_row['stochk']), 2),
+            "cmf": round(float(last_row['cmf']), 2)
         }
     except Exception as e:
         print(f"Gagal memproses {ticker}: {e}")
-        return {"ticker": ticker, "status": "ERROR", "price": 0, "action": "NO SIGNAL"}
+        return {"ticker": ticker, "status": "ERROR", "price": 0, "action": "ERROR CALC"}
 
 def main():
     results = []
@@ -79,7 +89,7 @@ def main():
         print(f"Memproses {ticker}...")
         results.append(get_signal(ticker))
 
-    # 4. Template HTML Statis Lokal
+    # 4. Template HTML Statis Lokal (Memanggil Assets/style.css)
     html_template = """
     <!DOCTYPE html>
     <html lang="id">
@@ -129,11 +139,11 @@ def main():
     template = Template(html_template)
     rendered_html = template.render(data=results, last_update=current_time)
 
-    # Simpan index.html naik satu tingkat (ke folder root utama)
+    # Simpan index.html naik satu tingkat ke folder root utama
     output_path = os.path.join(BASE_DIR, "..", "index.html")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(rendered_html)
-    print("File index.html di folder root berhasil diperbarui!")
+    print("File index.html di folder root berhasil disegarkan!")
 
 if __name__ == "__main__":
     main()
