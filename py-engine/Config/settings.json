@@ -1,0 +1,15 @@
+{
+  "tickers": ["AAPL", "MSFT", "NVDA", "TSLA", "AMD", "AMZN", "META", "GOOGL"],
+  "indicators": {
+    "ema_trend_length": 200,
+    "stoch_rsi_length": 14,
+    "stoch_k": 3,
+    "stoch_d": 3,
+    "atr_length": 14,
+    "cmf_length": 20
+  },
+  "thresholds": {
+    "stoch_oversold": 20,
+    "stoch_overbought": 80
+  }
+}
