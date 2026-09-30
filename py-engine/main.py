@@ -1,12 +1,22 @@
 import os
+import json
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 from jinja2 import Template
 from datetime import datetime
 
-# 1. Daftar saham US yang ingin dipantau (batasi agar tidak terkena limit rate yfinance)
-TICKERS = ["AAPL", "MSFT", "NVDA", "TSLA", "AMD", "AMZN", "META", "GOOGL"]
+# Ambil jalur absolut direktori skrip ini dijalankan
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 1. Memuat File Konfigurasi dari folder Config
+config_path = os.path.join(BASE_DIR, "Config", "settings.json")
+with open(config_path, "file", encoding="utf-8") as f:
+    config = json.load(f)
+
+TICKERS = config["tickers"]
+IND = config["indicators"]
+THRES = config["thresholds"]
 
 def get_signal(ticker):
     try:
@@ -15,31 +25,39 @@ def get_signal(ticker):
         if df.empty:
             return {"ticker": ticker, "status": "ERROR", "price": 0, "action": "NO SIGNAL"}
 
-        # Meratakan MultiIndex jika ada (antisipasi perubahan format yfinance)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        # 2. Hitung Indikator Teknikal
-        df['EMA_200'] = ta.ema(df['close'], length=200)
-        stoch_rsi = ta.stochrsi(df['close'], length=14, k=3, d=3)
+        # 2. Hitung Indikator Teknikal Menggunakan Parameter dari JSON
+        df['EMA_200'] = ta.ema(df['close'], length=IND["ema_trend_length"])
+        
+        stoch_rsi = ta.stochrsi(
+            df['close'], 
+            length=IND["stoch_rsi_length"], 
+            k=IND["stoch_k"], 
+            d=IND["stoch_d"]
+        )
         df['STOCHK'] = stoch_rsi.iloc[:, 0]
         df['STOCHD'] = stoch_rsi.iloc[:, 1]
-        df['CMF'] = ta.cmf(df['high'], df['low'], df['close'], df['volume'], length=20)
+        
+        df['CMF'] = ta.cmf(
+            df['high'], df['low'], df['close'], df['volume'], 
+            length=IND["cmf_length"]
+        )
 
-        # Ambil baris terakhir (data paling terbaru / real-time)
         last_row = df.iloc[-1]
         price = round(float(last_row['close']), 2)
 
-        # 3. Logika Sinyal (Win Rate Tinggi)
-        # Beli jika di atas EMA 200, Stochastic Oversold (<20) & Golden Cross, CMF Positif
+        # 3. Logika Sinyal Menggunakan Batas Batas dari JSON
+        # BUY: Tren Naik, Stoch RSI Oversold & Golden Cross, Volume Aliran Dana Positif
         if (last_row['close'] > last_row['EMA_200']) and \
-           (last_row['STOCHK'] < 20) and \
+           (last_row['STOCHK'] < THRES["stoch_oversold"]) and \
            (last_row['STOCHK'] > last_row['STOCHD']) and \
            (last_row['CMF'] > 0):
             action = "BUY"
-        # Jual jika di bawah EMA 200, Stochastic Overbought (>80) & Dead Cross
+        # SELL: Tren Turun, Stoch RSI Overbought & Dead Cross
         elif (last_row['close'] < last_row['EMA_200']) and \
-             (last_row['STOCHK'] > 80) and \
+             (last_row['STOCHK'] > THRES["stoch_overbought"]) and \
              (last_row['STOCHK'] < last_row['STOCHD']):
             action = "SELL"
         else:
@@ -63,10 +81,7 @@ def main():
         print(f"Memproses {ticker}...")
         results.append(get_signal(ticker))
 
-    # 4. Render ke HTML menggunakan Jinja2
-        # ... (bagian atas kode main.py tetap sama) ...
-
-    # 4. Render ke HTML menggunakan Jinja2
+    # 4. Template HTML Statis Lokal
     html_template = """
     <!DOCTYPE html>
     <html lang="id">
@@ -74,7 +89,6 @@ def main():
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>US Stock Short-Term Trading Signals</title>
-        <!-- PERUBAHAN DI SINI: Memanggil file CSS lokal dari folder Assets -->
         <link rel="stylesheet" href="Assets/style.css">
     </head>
     <body>
@@ -113,18 +127,12 @@ def main():
     </html>
     """
     
-    # ... (bagian bawah kode untuk menyimpan file tetap sama seperti sebelumnya) ...
-
-    
-        # ... (kode bagian atas tetap sama seperti sebelumnya) ...
-    
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     template = Template(html_template)
     rendered_html = template.render(data=results, last_update=current_time)
 
-    # PERUBAHAN DI SINI: Gunakan "../index.html" untuk menyimpan ke folder root (luar)
-    output_path = os.path.join(os.path.dirname(__file__), "..", "index.html")
-    
+    # Simpan index.html naik satu tingkat (ke folder root utama)
+    output_path = os.path.join(BASE_DIR, "..", "index.html")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(rendered_html)
     print("File index.html di folder root berhasil diperbarui!")
