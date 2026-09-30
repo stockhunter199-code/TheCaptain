@@ -11,7 +11,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 1. Memuat File Konfigurasi dari folder Config
 config_path = os.path.join(BASE_DIR, "Config", "settings.json")
-with open(config_path, "file", encoding="utf-8") as f:
+with open(config_path, "r", encoding="utf-8") as f:
     config = json.load(f)
 
 TICKERS = config["tickers"]
@@ -49,13 +49,11 @@ def get_signal(ticker):
         price = round(float(last_row['close']), 2)
 
         # 3. Logika Sinyal Menggunakan Batas Batas dari JSON
-        # BUY: Tren Naik, Stoch RSI Oversold & Golden Cross, Volume Aliran Dana Positif
         if (last_row['close'] > last_row['EMA_200']) and \
            (last_row['STOCHK'] < THRES["stoch_oversold"]) and \
            (last_row['STOCHK'] > last_row['STOCHD']) and \
            (last_row['CMF'] > 0):
             action = "BUY"
-        # SELL: Tren Turun, Stoch RSI Overbought & Dead Cross
         elif (last_row['close'] < last_row['EMA_200']) and \
              (last_row['STOCHK'] > THRES["stoch_overbought"]) and \
              (last_row['STOCHK'] < last_row['STOCHD']):
